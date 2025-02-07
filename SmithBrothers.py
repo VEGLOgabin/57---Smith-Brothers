@@ -237,13 +237,13 @@ class ProductSpider(scrapy.Spider):
                 except Exception as e:
                     print("An error occurred while extracting Specifications:", str(e))
 
-                formatting_sku_for_uniqueness = str(main_img.split("/")[-1].split(".")[0]).upper() + "-"+ meta['category1'].replace(" ", "-")
-                self.logger.info(formatting_sku_for_uniqueness)
+                # formatting_sku_for_uniqueness = str(main_img.split("/")[-1].split(".")[0]).upper() + "-"+ meta['category1'].replace(" ", "-")
+                # self.logger.info(formatting_sku_for_uniqueness)
                 data.update({
                     "CATEGORY1": meta['category1'],
                     "COLLECTION": collection,
                     "ITEM_URL": meta['product_link'],
-                    "SKU": formatting_sku_for_uniqueness,
+                    "SKU": sku,
                     "DESCRIPTION": description,
                     "PRODUCT_DESCRIPTION": "",
                     "WIDTH": width,
