@@ -5,7 +5,9 @@ from scrapy.crawler import CrawlerProcess
 import requests
 from bs4 import BeautifulSoup
 import csv
-
+import pandas as pd
+import fitz
+import io
 
 def get_products(link):
     page = requests.get(link)
@@ -237,8 +239,6 @@ class ProductSpider(scrapy.Spider):
                 except Exception as e:
                     print("An error occurred while extracting Specifications:", str(e))
 
-                # formatting_sku_for_uniqueness = str(main_img.split("/")[-1].split(".")[0]).upper() + "-"+ meta['category1'].replace(" ", "-")
-                # self.logger.info(formatting_sku_for_uniqueness)
                 data.update({
                     "CATEGORY1": meta['category1'],
                     "COLLECTION": collection,
@@ -293,6 +293,210 @@ class ProductSpider(scrapy.Spider):
         self.logger.info("Spider closed. Files saved.")
  
 
+# -----------------------------   PDF Data Processing  -------------------------------------
+
+class CatalogProcessor:
+    def __init__(self, csv_file, output_file):
+        self.csv_file = csv_file
+        self.output_file = output_file
+        self.data = None
+
+    def load_csv(self):
+        """Load the CSV file into a Pandas DataFrame."""
+        self.data = pd.read_csv(self.csv_file, dtype = str).fillna("")
+
+    def process_table_data(self, data):
+        result = []
+        current_entry = []
+
+        for item in data:
+            parts = item.split("-")
+            if len(parts) == 2 and parts[0] != "" and (any(c.isdigit() for c in parts[0]) or any(c.isdigit() for c in parts[1])):
+                if current_entry:
+                    result.append(current_entry)
+                current_entry = [item]
+            elif (item[0].isdigit() and len(item)<3) or item == '-':  
+                current_entry.append(item)
+            else:
+                if len(current_entry) == 1:
+                    current_entry.append(item)
+                else:
+                    if len(current_entry)==2:
+                        current_entry[1] += " " + item 
+
+        if current_entry:
+            result.append(current_entry) 
+
+        return result
+    
+    def extract_pdf_data(self, pdf_url):
+        """Extract table data from the given PDF URL."""
+        try:
+            response = requests.get(pdf_url)
+            response.raise_for_status()
+            doc = fitz.open(stream=io.BytesIO(response.content), filetype="pdf")
+
+            for page in doc:
+                text = page.get_text("text")
+                lines = text.split("\n")
+
+                table_data = []
+                is_table = False
+                features = []
+                extracted_text = []
+
+                for line in lines:
+                    line = line.strip()
+                    if re.match(r"^[A-Z]?\d{3,}-\d{2,}\*?[A-Z]*$", line.strip()):
+                        is_table = True
+
+                    if is_table:
+                        if "*Battery Pack Available" in line:
+                            break
+                        if line:
+                            table_data.append(line)
+                        elif table_data:
+                            break  
+                    else:
+                        if "DIMENSIONS:" in line:
+                            features = extracted_text
+                        extracted_text.append(line) 
+                        if "FEATURES:" in line:
+                            extracted_text = []
+
+                features_filtered = []
+                for item in features:
+                    if "DIMENSIONS:" in item:
+                        break
+                    features_filtered.append(item)
+                
+
+                return {
+                    "features_data" : ",".join(features_filtered),
+                    "dimensions_table": self.process_table_data(table_data)
+                }
+            
+        except requests.RequestException as e:
+            print(f"Failed to download PDF: {e}")
+            return ""
+    
+    def extract_photos(self, row):
+        """Extract all non-empty PHOTO columns from a row."""
+        return [row[f"PHOTO{i}"] for i in range(1, 11) if row.get(f"PHOTO{i}", "").strip()]
+    
+    def process_data(self):
+        """Process each row to extract PDF data and photos, then save the result."""
+        new_rows = []
+        for _, row in self.data.iterrows():
+            if row["CATALOG_PDF"]:
+                pdf_data =  self.extract_pdf_data(row["CATALOG_PDF"])
+                construction_text =  pdf_data["features_data"]
+                dimentions_table = pdf_data["dimensions_table"]
+                products_titles = [item[1] for item in dimentions_table if dimentions_table]
+                photos = self.extract_photos(row)
+
+                for prod_dim in dimentions_table:
+                    print("****************************************************************************************************************")
+                    print(prod_dim)
+                    products_images = []
+                    pattern_search = ""
+                    pattern_exist_in_title = False
+                    for img in photos:
+                        if "-fabric-" in img:
+                            pattern_search = img.split('-fabric-')[-1].replace(".jpg", "")
+                            if "-" in pattern_search:
+                                pattern_search = pattern_search.split("-")
+                                pattern_search = [item.title() for item in pattern_search]
+                                for item_search in pattern_search:
+                                    if item_search in prod_dim[1]:
+                                        products_images.append(img.replace("-sm-", "-HD-"))
+                                        pattern_exist_in_title = True
+                                    else:
+                                        for title in products_titles:
+                                            if item_search in title:
+                                                pattern_exist_in_title = True    
+
+                            else:
+                                pattern_search = pattern_search.title()
+                                if pattern_search in prod_dim[1]:
+                                    products_images.append(img.replace("-sm-", "-HD-"))
+                                    pattern_exist_in_title = True
+                                else:
+                                    for title in products_titles:
+                                        if pattern_search in title:
+                                            pattern_exist_in_title = True
+
+                        if "-leather-" in img:
+                            pattern_search = img.split('-leather-')[-1].replace(".jpg", "")
+                            if "-" in pattern_search:
+                                pattern_search = pattern_search.split("-")
+                                pattern_search = [item.title() for item in pattern_search]
+                                for item_search in pattern_search:
+                                    if item_search in prod_dim[1]:
+                                        products_images.append(img.replace("-sm-", "-HD-"))
+                                        pattern_exist_in_title = True
+                                    else:
+                                        for title in products_titles:
+                                            if item_search in title:
+                                                pattern_exist_in_title = True
+
+                            else:
+                                pattern_search = pattern_search.title()
+                                if pattern_search in prod_dim[1]:
+                                    products_images.append(img.replace("-sm-", "-HD-"))
+                                    pattern_exist_in_title = True
+                                else:
+                                    for title in products_titles:
+                                        if pattern_search in title:
+                                            pattern_exist_in_title = True
+
+
+                        if not pattern_exist_in_title:
+                            products_images.append(img.replace("-sm-", "-HD-"))
+                    new_row = row.copy()
+
+                    if len(prod_dim)>=5:
+                        width = prod_dim[2]
+                        depth = prod_dim[3]
+                        height = prod_dim[4]
+                        new_row.update({
+                        "WIDTH": width,
+                        "DEPTH": depth,
+                        "HEIGHT": height,
+                        })
+
+                    new_row.update({
+                        "SKU": prod_dim[0].replace("*", ""),
+                        "DESCRIPTION": prod_dim[1],
+                        "CONSTRUCTION": construction_text, 
+                        })
+                        
+
+                    for i in range(1, 11):
+                        new_row[f"PHOTO{i}"] = ""
+                    for idx, img_url in enumerate(products_images):
+                        if idx > 9:
+                            continue
+                        else:
+                            new_row[f"PHOTO{idx + 1}"] = img_url
+                    if len(products_images) < 10:
+                        print(f"Only {len(products_images)} images found for -------- {prod_dim[0]} --------. Remaining PHOTO columns will be ''.")
+                    elif len(products_images) > 10:
+                        print(f"More than 10 images found for ---------- {prod_dim[0]} -----------. Only the first 10 will be saved.")
+
+                    if len(products_images) == 0:
+                        new_row.update({
+                            "VIEWTYPE": "Limited",
+                        })
+
+                    new_rows.append(new_row)
+        new_df = pd.DataFrame(new_rows)
+        new_df.to_csv(self.output_file, index=False)
+
+
+
+
+
 
 # ----------------------------------------    RUN THE CODE   --------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -303,3 +507,6 @@ if __name__ == "__main__":
     process = CrawlerProcess()
     process.crawl(ProductSpider)
     process.start()
+    processor = CatalogProcessor("output/smith_brothers.csv", "output/smith_brothers_sku_updated.csv")
+    processor.load_csv()
+    processor.process_data()
