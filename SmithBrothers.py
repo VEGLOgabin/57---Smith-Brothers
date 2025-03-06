@@ -104,11 +104,8 @@ class ProductSpider(scrapy.Spider):
     def __init__(self, input_file='utilities/products-links.csv', *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.input_file = input_file
-        os.makedirs('output', exist_ok=True)
-        self.smith_brothers_file = open('output/smith_brothers.csv', 'w', newline='', encoding='utf-8')
-
+        self.smith_brothers_file = open('utilities/smith_brothers.csv', 'w', newline='', encoding='utf-8')
         self.smith_brothers_writer = csv.DictWriter(self.smith_brothers_file, fieldnames=self.columns)
-
         self.smith_brothers_writer.writeheader()
 
 
@@ -335,7 +332,6 @@ class CatalogProcessor:
             response = requests.get(pdf_url)
             response.raise_for_status()
             doc = fitz.open(stream=io.BytesIO(response.content), filetype="pdf")
-            print("OKAYYYYYYYYYYYYYYYYYYYYYYYY")
             all_tables = []
             page = doc[0]
             text = page.get_text("text")
@@ -537,13 +533,12 @@ class CatalogProcessor:
 
 # ----------------------------------------    RUN THE CODE   --------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
-
-    output_dir = 'utilities'
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs('utilities', exist_ok=True)
+    os.makedirs('output', exist_ok=True)
     get_products_links()
     process = CrawlerProcess()
     process.crawl(ProductSpider)
     process.start()
-    processor = CatalogProcessor("output/smith_brothers.csv", "output/smith_brothers_sku_updated.csv")
+    processor = CatalogProcessor("utilities/smith_brothers.csv", "output/smith_brothers.csv")
     processor.load_csv()
     processor.process_data()
