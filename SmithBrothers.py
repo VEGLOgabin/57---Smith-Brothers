@@ -335,45 +335,86 @@ class CatalogProcessor:
             response = requests.get(pdf_url)
             response.raise_for_status()
             doc = fitz.open(stream=io.BytesIO(response.content), filetype="pdf")
+            print("OKAYYYYYYYYYYYYYYYYYYYYYYYY")
+            all_tables = []
+            page = doc[0]
+            text = page.get_text("text")
+            lines = text.split("\n")
 
-            for page in doc:
-                text = page.get_text("text")
-                lines = text.split("\n")
+            table_data = []
+            is_table = False
+            features = []
+            extracted_text = []
+            features_filtered = []
 
-                table_data = []
-                is_table = False
-                features = []
-                extracted_text = []
+            for line in lines:
+                line = line.strip()
 
-                for line in lines:
-                    line = line.strip()
-                    if re.match(r"^[A-Z]?\d{3,}-\d{2,}\*?[A-Z]*$", line.strip()):
-                        is_table = True
+                if re.match(r"^[A-Z]?\d{3,}-\d{2,}\*?[A-Z]*$", line.strip()):
+                    is_table = True
 
-                    if is_table:
-                        if "*Battery Pack Available" in line:
-                            break
-                        if line:
-                            table_data.append(line)
-                        elif table_data:
-                            break  
-                    else:
-                        if "DIMENSIONS:" in line:
-                            features = extracted_text
-                        extracted_text.append(line) 
-                        if "FEATURES:" in line:
-                            extracted_text = []
-
-                features_filtered = []
-                for item in features:
-                    if "DIMENSIONS:" in item:
+                if is_table:
+                    if "*Battery Pack Available" in line:
                         break
-                    features_filtered.append(item)
-                
+                    if line:
+                        table_data.append(line)
+                    elif table_data:
+                        break  
+                else:
+                    if "DIMENSIONS:" in line:
+                        features = extracted_text
+                    extracted_text.append(line) 
+                    if "FEATURES:" in line:
+                        extracted_text = []
 
-                return {
+            features_filtered = []
+            for item in features:
+                if "DIMENSIONS:" in item:
+                    break
+                features_filtered.append(item)
+            
+
+            all_tables.append(table_data)
+
+
+            if len(doc)>1:
+                doc = doc[1:]
+                for page in doc:
+                    text = page.get_text("text")
+                    lines = text.split("\n")
+
+                    table_data = []
+                    is_table = False
+                    dimensions_found = False
+                  
+
+                    for line in lines:
+                        line = line.strip()
+
+                        if "DIMENSIONS:" in line:
+                            dimensions_found = True
+
+                        if dimensions_found and re.match(r"^[A-Z]?\d{3,}-\d{2,}\*?[A-Z]*$", line.strip()):
+                            is_table = True
+
+                        if is_table:
+                            if "*Battery Pack Available" in line:
+                                continue
+                            if line:
+                                table_data.append(line)
+                            elif table_data:
+                                pass 
+            
+                    all_tables.append(table_data)
+            dimensions_data = []  
+            for dim_data in all_tables:
+                processed_data = self.process_table_data(dim_data)
+                for item in processed_data:
+                    if item not in dimensions_data:
+                        dimensions_data.append(item)  
+            return {
                     "features_data" : ",".join(features_filtered),
-                    "dimensions_table": self.process_table_data(table_data)
+                    "dimensions_table": dimensions_data
                 }
             
         except requests.RequestException as e:
@@ -394,10 +435,10 @@ class CatalogProcessor:
                 dimentions_table = pdf_data["dimensions_table"]
                 products_titles = [item[1] for item in dimentions_table if dimentions_table]
                 photos = self.extract_photos(row)
-
+                print("-------------------------------------")
+                print(dimentions_table)
+                print("--------------------------------")
                 for prod_dim in dimentions_table:
-                    print("****************************************************************************************************************")
-                    print(prod_dim)
                     products_images = []
                     pattern_search = ""
                     pattern_exist_in_title = False
@@ -492,10 +533,6 @@ class CatalogProcessor:
                     new_rows.append(new_row)
         new_df = pd.DataFrame(new_rows)
         new_df.to_csv(self.output_file, index=False)
-
-
-
-
 
 
 # ----------------------------------------    RUN THE CODE   --------------------------------------------------------------------------------------------------
