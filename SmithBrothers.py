@@ -501,9 +501,9 @@ class CatalogProcessor:
 # ----------------------------------------    RUN THE CODE   --------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
 
-    # output_dir = 'utilities'
-    # os.makedirs(output_dir, exist_ok=True)
-    # get_products_links()
+    output_dir = 'utilities'
+    os.makedirs(output_dir, exist_ok=True)
+    get_products_links()
     process = CrawlerProcess()
     process.crawl(ProductSpider)
     process.start()
